@@ -25,12 +25,13 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 
 class night_thread(QThread):
-    def __init__(self, roomid, main):
+    def __init__(self, roomid, main, debug=False):
         '全自动晚安机'
         super().__init__()
 
         self.main = main
         self.stopped = False
+        self.debug = debug
 
         if not roomid:
             if main.heavy_signal:
@@ -45,9 +46,10 @@ class night_thread(QThread):
                 return
 
         self.roomid = roomid
+        self.real_signal = main.real_signal
         self.heavy_signal = main.heavy_signal
         self.send_signal = main.send_signal
-        self.listening = '[{}]'.format(','.join(self.main.setting['listening_words']))
+        self.listening = '({})'.format(')|('.join(self.main.setting['listening_words']))
         self.listening = re.compile(self.listening)
         self.goodnight = self.main.setting['goodnight_words']
 
@@ -60,6 +62,7 @@ class night_thread(QThread):
         self.check_room = live.LiveDanmaku(roomid)  # 接收弹幕, debug=True
         self.send_room = live.LiveRoom(roomid, credential=self.credential)  # 发送弹幕
 
+        self.real_danmuku = 0
         self.danmuku_list = []  # 储存一段时间晚安弹幕
         self.count_danmuku = 0  # 储存某时间点晚安弹幕
         self.total_danmuku = 0  # 统计一段时间总晚安弹幕
@@ -68,31 +71,38 @@ class night_thread(QThread):
         @self.check_room.on('DANMU_MSG')
         async def on_danmaku(event):
             '接收弹幕并计算密度'
+            self.real_danmuku += 1
             info = event['data']['info']
-            msg = info[1]  # 弹幕文本内容
             time = info[9]['ts']  # 时间戳
             if time > self.last_time:
                 self.last_time = time
+                if self.real_signal:
+                    self.real_signal.emit(str(self.real_danmuku)+' / s')
+                self.real_danmuku = 0
                 self.danmuku_list.append(self.count_danmuku)  # 把上个时间戳记录的弹幕数储存并归零
                 self.count_danmuku = 0
                 self.total_danmuku += self.danmuku_list[-1]  # 总弹幕数增加
                 if len(self.danmuku_list) > 5:  # 只记录最近 5 个时间戳内的弹幕 可改
                     self.total_danmuku -= self.danmuku_list.pop(0)  # 从总弹幕数总减去 删去了的时间戳内的弹幕数
-            if self.listening.search(msg):
+            if self.listening.search(info[1]):
+                if debug:
+                    print(self.listening.search(info[1]), info[1])
                 self.count_danmuku += 1
 
     async def send_msg(self):
         '每 1 秒检测晚安弹幕密度 若超过阈值则随机发送晚安弹幕'
-        timestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))
-        print(f'[heartbeat][{timestr}][INFO] 晚安弹幕密度：'+str(self.total_danmuku)+' / 5s')
+        if self.debug:
+            timestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))
+            print(f'[heartbeat][{timestr}][INFO] 晚安弹幕密度：'+str(self.total_danmuku)+' / 5s')
         if self.heavy_signal:
             self.heavy_signal.emit(str(self.total_danmuku)+' / 5s')
         if not self.stopped:
             if self.total_danmuku >= self.main.setting['limited_density']:  # 密度超过 25/5s 则发送晚安 可改
                 try:
                     pos = randint(0, len(self.goodnight)-5)
-                    timestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))
-                    print(f'[send_msg][{timestr}][INFO] 发送晚安弹幕：'+self.goodnight[pos])
+                    if self.debug:
+                        timestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))
+                        print(f'[send_msg][{timestr}][INFO] 发送晚安弹幕：'+self.goodnight[pos])
                     await self.send_room.send_danmaku(Danmaku(self.goodnight[pos]))
                     if self.send_signal:
                         self.send_signal.emit(self.goodnight[pos])
@@ -100,7 +110,8 @@ class night_thread(QThread):
                 except Exception as e:
                     if self.send_signal:
                         self.send_signal.emit('发送弹幕失败：'+str(e))
-                    print('发送弹幕失败：'+str(e))
+                    if self.debug:
+                        print('发送弹幕失败：'+str(e))
 
     def run(self):
         try:
@@ -120,12 +131,13 @@ class night_thread(QThread):
 
 
 class MainWindow(RoundShadow):
+    real_signal = pyqtSignal(str)
     heavy_signal = pyqtSignal(str)
     send_signal = pyqtSignal(str)
 
     def __init__(self, setting):
         self.rwidth = 315
-        self.rheight = 285
+        self.rheight = 335
         super(MainWindow, self).__init__(self.rwidth, self.rheight, r=8)
         self.setWindowIcon(QIcon(':/256.ico'))
         self.setting = setting
@@ -142,11 +154,12 @@ class MainWindow(RoundShadow):
             self.vbox.addWidget(tl)
             return tl
 
-        tls = [add_TLineEdit(i) for i in ['直播间号：', '弹幕密度：', '正在发送：']]
+        tls = [add_TLineEdit(i) for i in ['直播间号：', '实时密度：', '晚安密度：', '正在发送：']]
         tls[0].Edit.setText(str(setting['roomid']))
 
-        self.heavy_signal.connect(lambda s: tls[1].Edit.setText(s))
-        self.send_signal.connect(lambda s: tls[2].Edit.setText(s))
+        self.real_signal.connect(lambda s: tls[1].Edit.setText(s))
+        self.heavy_signal.connect(lambda s: tls[2].Edit.setText(s))
+        self.send_signal.connect(lambda s: tls[3].Edit.setText(s))
         self.hbox = QHBoxLayout()
 
         def add_btn(i):
@@ -163,22 +176,22 @@ class MainWindow(RoundShadow):
                 tls[1].Edit.setText('连接中')
                 self.nt = night_thread(tls[0].Edit.text(), self)
                 self.nt.start()
-                tls[2].Edit.setText('')
+                tls[3].Edit.setText('')
                 self.running = True
             else:
                 tls[1].Edit.setText('已连接')
 
         def stop_btn():
             if not self.nt:
-                tls[2].Edit.setText('未连接')
+                tls[3].Edit.setText('未连接')
             else:
                 if not self.nt.stopped:
                     self.nt.stopped = True
-                    tls[2].Edit.setText('已暂停')
+                    tls[3].Edit.setText('已暂停')
                     tps[1].setTitle((Qt.white, QFont('微软雅黑', 13, QFont.Normal), '继续'))
                 else:
                     self.nt.stopped = False
-                    tls[2].Edit.setText('')
+                    tls[3].Edit.setText('')
                     tps[1].setTitle((Qt.white, QFont('微软雅黑', 13, QFont.Normal), '暂停'))
 
         tps[0].clicked.connect(run_btn)
