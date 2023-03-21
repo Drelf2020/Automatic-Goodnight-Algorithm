@@ -11,7 +11,7 @@ class TPushButton(QPushButton):
     color 不选用 img 时三种状态下颜色\n
     '''
     def __init__(self, r=(0, 0, 0, 0), color=[Qt.white, QColor(242, 242, 242), QColor(232, 232, 232)], parent=None):
-        super(TPushButton, self).__init__(parent)
+        super().__init__(parent)
         self.r = r
         self.color = color
         self.choice = 0
@@ -26,11 +26,11 @@ class TPushButton(QPushButton):
 
     def mousePressEvent(self, QMouseEvent):
         self.choice = 2
-        super(TPushButton, self).mousePressEvent(QMouseEvent)
+        super().mousePressEvent(QMouseEvent)
 
     def mouseReleaseEvent(self, QMouseEvent):
         self.choice = 1
-        super(TPushButton, self).mouseReleaseEvent(QMouseEvent)
+        super().mouseReleaseEvent(QMouseEvent)
 
     def leaveEvent(self, QMouseEvent):
         self.choice = 0

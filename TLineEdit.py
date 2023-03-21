@@ -38,7 +38,7 @@ class TLineEdit(QWidget):
         super(TLineEdit, self).__init__(parent)
         self.title = title
         self.Edit = EXEdit(self)  # 编辑框
-        self.Edit.setAlignment(Qt.AlignCenter)
+        self.Edit.setAlignment(Qt.AlignVCenter)
         self.Edit.setContextMenuPolicy(Qt.NoContextMenu)  # 禁用右键菜单 https://bbs.csdn.net/topics/391545518
         # 利用css代码取消边框和背景
         self.Edit.setStyleSheet(("border:0px;background:rgba(0,0,0,0);"))
@@ -50,20 +50,26 @@ class TLineEdit(QWidget):
         }
         self.pen = self.pen_style['leave']  # 初始画笔
 
+    def setText(self, a0: str):
+        self.Edit.setText(a0)
+
+    def text(self):
+        return self.Edit.text()
+
     def paintEvent(self, event):
         '绘制文本框'
         pat = QPainter(self)
         pat.setRenderHint(pat.Antialiasing)
         pat.setPen(self.pen)
-        font = QFont('微软雅黑', 13, QFont.Normal)
-        font.setPixelSize(0.45*self.height())
+        font = QFont('HarmonyOS Sans SC', 13, QFont.Normal)
+        font.setPixelSize(int(0.45*self.height()))
         fm = QFontMetricsF(font)  # 测字符长度
         w = fm.width(self.title)
         pat.setFont(font)
         pat.drawText(self.rect(), Qt.AlignVCenter | Qt.AlignLeft, self.title)
-        pat.drawLine(QPointF(w, self.height()), QPointF(self.width(), self.height()))
+        # pat.drawLine(QPointF(w, self.height()), QPointF(self.width(), self.height()))
         self.Edit.setFont(font)
-        self.Edit.setGeometry(w, 0.05*self.height(), self.width()-w-5, 0.9*self.height())
+        self.Edit.setGeometry(int(w), int(0.075*self.height()), int(self.width()-w-5), int(0.9*self.height()))
 
     def enterEvent(self, QMouseEvent):
         '检测鼠标是否移动至文本框并变色'

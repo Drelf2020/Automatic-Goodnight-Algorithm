@@ -1,27 +1,25 @@
+import asyncio
 import re
+import resource
 import sys
 import time
-import json
-
-import resource
-
 from random import randint
 
-from bilibili_api import live, sync
-from bilibili_api.utils.Danmaku import Danmaku
+import yaml
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+from bilibili_api import live
 from bilibili_api.utils.Credential import Credential
+from bilibili_api.utils.Danmaku import Danmaku
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtGui import QColor, QFont, QIcon
+from PyQt5.QtWidgets import QApplication, QHBoxLayout, QMessageBox, QVBoxLayout
 
+from bili import BILI
+from RoundShadow import RoundShadow
+from TLabel import TLabel
 from TLineEdit import TLineEdit
 from TPushButton import TPushButton
-from RoundShadow import RoundShadow
-
-from PyQt5.QtGui import QColor, QFont, QIcon
-from PyQt5.QtWidgets import QApplication, QMessageBox
-from PyQt5.QtCore import Qt, pyqtSignal, QThread
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout
-
-from apscheduler.triggers.interval import IntervalTrigger
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 
 class night_thread(QThread):
@@ -55,8 +53,7 @@ class night_thread(QThread):
 
         self.credential = Credential(
             sessdata=main.setting['cookies']['sessdata'],
-            bili_jct=main.setting['cookies']['bili_jct'],
-            buvid3=main.setting['cookies']['buvid3']
+            bili_jct=main.setting['cookies']['bili_jct']
         )
 
         self.check_room = live.LiveDanmaku(roomid)  # 接收弹幕, debug=True
@@ -95,7 +92,7 @@ class night_thread(QThread):
             timestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))
             print(f'[heartbeat][{timestr}][INFO] 晚安弹幕密度：'+str(self.total_danmuku)+' / 5s')
         if self.heavy_signal:
-            self.heavy_signal.emit(str(self.total_danmuku)+' / 5s')
+            self.heavy_signal.emit(str(self.total_danmuku)+' / 5 s')
         if not self.stopped:
             if self.total_danmuku >= self.main.setting['limited_density']:  # 密度超过 25/5s 则发送晚安 可改
                 try:
@@ -120,11 +117,13 @@ class night_thread(QThread):
             self.main.running = False
             return
         try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             sched = AsyncIOScheduler()  # 定时检测密度的任务调度器
             trigger = IntervalTrigger(seconds=self.main.setting['send_rate'])  # 定时器
             sched.add_job(self.send_msg, trigger)  # 添加任务
             sched.start()
-            sync(self.check_room.connect())
+            loop.run_until_complete(self.check_room.connect())
         except Exception as e:
             with open('error.txt', 'w+', encoding='utf-8') as fp:
                 fp.write('运行时错误，已初始化，错误原因：'+str(e))
@@ -136,137 +135,112 @@ class MainWindow(RoundShadow):
     send_signal = pyqtSignal(str)
 
     def __init__(self, setting):
-        self.rwidth = 315
-        self.rheight = 335
-        super(MainWindow, self).__init__(self.rwidth, self.rheight, r=8)
+        self.rwidth = 350 # 850
+        self.rheight = 335 # 700
+        super(MainWindow, self).__init__(self.rwidth, self.rheight, title=' 全自动晚安机')
         self.setWindowIcon(QIcon(':/256.ico'))
         self.setting = setting
         self.running = False
         self.nt = None
-        self.setTitle('全自动晚安机', location=Qt.AlignTop | Qt.AlignLeft)
-        self.vbox = QVBoxLayout(self.bglab)
+        self.box = QHBoxLayout(self.bglab)
+        self.box.addWidget(TLabel(color='#E50000'), 2)
+
+        self.vbox = QVBoxLayout()
         self.vbox.setAlignment(Qt.AlignTop)
 
-        def add_TLineEdit(i):
-            tl = TLineEdit(i)
+        def add_TLineEdit(title):
+            tl = TLineEdit(title)
             tl.setMinimumHeight(50)
             tl.setMaximumHeight(50)
             self.vbox.addWidget(tl)
             return tl
 
-        tls = [add_TLineEdit(i) for i in ['直播间号：', '实时密度：', '晚安密度：', '正在发送：']]
-        tls[0].Edit.setText(str(setting['roomid']))
+        tls = [add_TLineEdit(_) for _ in ['直播间号：', '实时密度：', '晚安密度：', '正在发送：']]
+        tls[0].setText(str(setting['roomid']))
 
-        self.real_signal.connect(lambda s: tls[1].Edit.setText(s))
-        self.heavy_signal.connect(lambda s: tls[2].Edit.setText(s))
-        self.send_signal.connect(lambda s: tls[3].Edit.setText(s))
+        self.real_signal.connect(lambda s: tls[1].setText(s))
+        self.heavy_signal.connect(lambda s: tls[2].setText(s))
+        self.send_signal.connect(lambda s: tls[3].setText(s))
         self.hbox = QHBoxLayout()
+        self.hbox.addStretch(3)
 
-        def add_btn(i):
+        def add_btn(title):
             tp = TPushButton(r=(4, 4, 4, 4), color=[QColor(7, 188, 252), QColor(31, 200, 253), QColor(31, 200, 253)])
-            tp.setTitle((Qt.white, QFont('微软雅黑', 13, QFont.Normal), i))
-            tp.setMinimumHeight(40)
-            self.hbox.addWidget(tp)
+            tp.setTitle((Qt.white, QFont('HarmonyOS Sans SC', 13), title))
+            tp.setMinimumSize(120, 40)
+            self.hbox.addWidget(tp, 1)
             return tp
 
-        tps = [add_btn(i) for i in ['连接', '暂停']]
+        tps = [add_btn(_) for _ in ['连接', '暂停']]
 
         def run_btn():
             if not self.running:
-                tls[1].Edit.setText('连接中')
-                self.nt = night_thread(tls[0].Edit.text(), self)
+                tls[1].setText('连接中')
+                self.nt = night_thread(tls[0].text(), self)
                 self.nt.start()
-                tls[3].Edit.setText('')
+                tls[3].setText('')
                 self.running = True
             else:
-                tls[1].Edit.setText('已连接')
+                tls[1].setText('已连接')
 
         def stop_btn():
             if not self.nt:
-                tls[3].Edit.setText('未连接')
+                tls[3].setText('未连接')
             else:
                 if not self.nt.stopped:
                     self.nt.stopped = True
-                    tls[3].Edit.setText('已暂停')
-                    tps[1].setTitle((Qt.white, QFont('微软雅黑', 13, QFont.Normal), '继续'))
+                    tls[3].setText('已暂停')
+                    tps[1].setTitle((Qt.white, QFont('HarmonyOS Sans SC', 13), '继续'))
                 else:
                     self.nt.stopped = False
-                    tls[3].Edit.setText('')
-                    tps[1].setTitle((Qt.white, QFont('微软雅黑', 13, QFont.Normal), '暂停'))
+                    tls[3].setText('')
+                    tps[1].setTitle((Qt.white, QFont('HarmonyOS Sans SC', 13), '暂停'))
 
         tps[0].clicked.connect(run_btn)
         tps[1].clicked.connect(stop_btn)
 
-        self.vbox.addStretch(1)
+        self.vbox.addStretch()
         self.vbox.addLayout(self.hbox)
-
+        self.box.addLayout(self.vbox, 6)
 
 def check_setting(setting):
-    if 'roomid' not in setting:
-        raise Exception('缺少 roomid 参数')
-    if 'cookies' not in setting:
-        raise Exception('缺少 cookies 参数')
-    if 'sessdata' not in setting['cookies']:
-        raise Exception('缺少 cookies 参数')
-    if 'bili_jct' not in setting['cookies']:
-        raise Exception('缺少 cookies 参数')
-    if 'buvid3' not in setting['cookies']:
-        raise Exception('缺少 cookies 参数')
-    if 'listening_words' not in setting:
-        raise Exception('缺少 listening_words 参数')
-    if 'goodnight_words' not in setting:
-        raise Exception('缺少 goodnight_words 参数')
-    if 'limited_density' not in setting:
-        raise Exception('缺少 limited_density 参数')
-    else:
-        try:
-            setting['limited_density'] = max(0, setting['limited_density'])
-        except Exception as e:
-            raise e
-    if 'send_rate' not in setting:
-        raise Exception('缺少 send_rate 参数')
-    else:
-        try:
-            setting['send_rate'] = max(1, setting['send_rate'])
-        except Exception as e:
-            raise e
-
+    assert 'roomid' in setting, '缺少 roomid 参数'
+    assert 'cookies' in setting, '缺少 cookies 参数'
+    assert 'sessdata' in setting['cookies'], '缺少 sessdata 参数'
+    assert 'bili_jct' in setting['cookies'], '缺少 bili_jct 参数'
+    assert 'listening_words' in setting, '缺少 listening_words 参数'
+    assert 'goodnight_words' in setting, '缺少 goodnight_words 参数'
+    assert 'limited_density' in setting and setting['limited_density'] >= 0, 'limited_density 参数错误'
+    assert 'send_rate' in setting and setting['send_rate'] >= 1, 'send_rate 参数错误'
 
 if __name__ == '__main__':
 
     standard_setting = {
-        "roomid": "",
+        "roomid": 21452505,
         "cookies": {
             "sessdata": "",
-            "bili_jct": "",
-            "buvid3": ""
+            "bili_jct": ""
         },
-        "listening_words": ['晚安', '拜拜', '别走好吗'],
+        "listening_words": ['晚安', '拜拜'],
         "goodnight_words": ["晚安", "拜拜", "别走好吗", "晚安晚安", "还会再见吗", "早点睡吧", "海比晚安"],
         "limited_density": 25,
-        "send_rate": 1
+        "send_rate": 1.05
     }
 
-    error = None
-
+    app = QApplication(sys.argv)  # 新建窗口前必运行app
+    
     try:
-        with open('config.json', 'r', encoding='utf-8') as f:
-            setting = json.load(f)
+        with open('config.yml', 'r+', encoding='utf-8') as fp:
+            setting = yaml.load(fp, Loader=yaml.Loader)
             check_setting(setting)
     except Exception as e:
-        error = str(e)
         setting = standard_setting
-        with open('config.json', 'w+', encoding='utf-8') as fp:
-            json.dump(standard_setting, fp, indent=4, ensure_ascii=False)
 
-    app = QApplication(sys.argv)  # 新建窗口前必运行app
+    if not (bili := BILI(**setting['cookies'])).check():
+        QMessageBox.critical(None, '请扫码登录', '点击确定后会自动打开二维码，如果未自动打开图片，请在此目录中寻找 qrcode.png 进行扫码。')
+        setting['cookies'] = bili.login(app)
+        with open('config.yml', 'w+', encoding='utf-8') as fp:
+            yaml.dump(setting, fp, allow_unicode=True)
     win = MainWindow(setting)
     win.show()  # 显示主窗口
-    if error:
-        msgBox = QMessageBox.critical(win, u'配置文件错误，已初始化，请重新填写配置文件 <config.json>', u"错误原因："+error)
-        sys.exit(0)
-    for i in setting['cookies']:
-        if not setting['cookies'][i]:
-            msgBox = QMessageBox.critical(win, u'配置文件错误', u"错误原因："+i+' 项未填写')
-            sys.exit(0)
     app.exec_()  # 等待直到登录窗口关闭

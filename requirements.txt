@@ -1,0 +1,9 @@
+pyyaml
+apscheduler
+apscheduler
+bilibili_api
+PyQt5
+httpx
+qrcode
+Pillow
+pyinstaller

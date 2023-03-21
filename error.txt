@@ -1,0 +1,1 @@
+运行时错误，已初始化，错误原因：There is no current event loop in thread 'Dummy-2'.

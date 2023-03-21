@@ -1,143 +1,148 @@
-from PyQt5.QtCore import Qt, QRectF, QRect
-from PyQt5.QtGui import QPainter, QColor, QPainterPath, QFont
-from PyQt5.QtWidgets import QPushButton, QDesktopWidget, QMainWindow
+from fileinput import close
+import os
+import sys
+
+from PyQt5.QtCore import QRect, QRectF, Qt, QPoint, pyqtSignal
+from PyQt5.QtGui import QColor, QFont, QFontDatabase, QPainter, QPainterPath
+from PyQt5.QtWidgets import (QApplication, QDesktopWidget, QMainWindow, QPushButton)
 from TLabel import TLabel
 
 
 class MyButton(QPushButton):
-    MINI = 0
-    CLOSE = 1
-
-    def __init__(self, patten, parent=None):
-        super(MyButton, self).__init__(parent)
-        self.patten = patten
-        self.choice = 0
-        self.color = [QColor(0, 0, 0, 0),
-                      QColor(255, 84, 57) if patten else QColor(255, 255, 255, 100),
-                      QColor(224, 74, 50) if patten else QColor(255, 255, 255, 125)]
+    choice: int = 0  # 不同的选中状态
+    COLOR = list()  # 不用状态下的颜色
 
     def enterEvent(self, QMouseEvent):
         self.choice = 1
+        super().enterEvent(QMouseEvent)
 
     def mousePressEvent(self, QMouseEvent):
         self.choice = 2
-        super(MyButton, self).mousePressEvent(QMouseEvent)
+        super().mousePressEvent(QMouseEvent)
 
     def mouseReleaseEvent(self, QMouseEvent):
         self.choice = 1
-        super(MyButton, self).mouseReleaseEvent(QMouseEvent)
+        super().mouseReleaseEvent(QMouseEvent)
 
     def leaveEvent(self, QMouseEvent):
         self.choice = 0
+        super().leaveEvent(QMouseEvent)
 
     def paintEvent(self, event):
-        pat = QPainter(self)
-        pat.setRenderHint(pat.Antialiasing)  # 抗锯齿
-        pat.setPen(Qt.NoPen)
-        pat.setBrush(self.color[self.choice])
-        pat.drawRoundedRect(QRect(0, 0, self.width(), self.height()), self.width()/2, self.height()/2)
-        if self.patten == self.CLOSE:
-            x, y, r = self.width()/2-3, self.height()/2-3, self.width()/12
-            pat.translate(x+3, y+3)
-            pat.rotate(-45)
-            pat.setPen(Qt.white)
-            pat.setBrush(Qt.white)
-            pat.drawRoundedRect(QRect(-x, -r/2, 2*x, r), r/2, r/2)
-            pat.drawRoundedRect(QRect(-r/2, -y, r, 2*y), r/2, r/2)
-        elif self.patten == self.MINI:
-            pat.setPen(Qt.white)
-            pat.setBrush(Qt.white)
-            pat.drawRoundedRect(QRect(self.width()/5, self.height()/2, self.width()*3/5, self.height()/12), self.height()/24, self.height()/24)
+        self.pat = QPainter(self)
+        self.pat.setRenderHint(self.pat.Antialiasing)  # 抗锯齿
+        self.pat.setPen(Qt.NoPen)
+        self.pat.setBrush(self.COLOR[self.choice])
+        self.pat.drawRoundedRect(QRect(0, 0, self.width(), self.height()), self.width()//2, self.height()//2)
 
+class miniButton(MyButton):
+    COLOR = [QColor(0, 0, 0, 0), QColor(255, 255, 255, 100), QColor(255, 255, 255, 125)]
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        self.pat.setPen(Qt.white)
+        self.pat.setBrush(Qt.white)
+        self.pat.drawRoundedRect(QRect(self.width()//5, self.height()//2, self.width()*3//5, self.height()//12), self.height()//24, self.height()//24)
+        self.pat.end()
+
+class closeButton(MyButton):
+    COLOR = [QColor(0, 0, 0, 0), QColor(255, 84, 57), QColor(224, 74, 50)]
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        x, y, r = self.width()/2-4, self.height()/2-4, self.width()/12
+        self.pat.translate(x+4, y+4)
+        self.pat.rotate(-45)
+        self.pat.setPen(Qt.white)
+        self.pat.setBrush(Qt.white)
+        self.pat.drawRoundedRect(QRectF(-x, -r//2, 2*x, r), r//2, r//2)
+        self.pat.drawRoundedRect(QRectF(-r//2, -y, r, 2*y), r//2, r//2)
+        self.pat.end()
 
 class RoundShadow(QMainWindow):
     '''
-    圆角边框类
-    width, height: 去掉边框后界面的长宽
-    setting: 窗口配色设置
-    r: 界面圆角半径
-    s: 阴影扩散范围
-    img: 背景图片
-    title: 界面标题
+    圆角窗口\n
+    width, height: 去掉边框后界面的长宽\n
+    radius: 界面圆角半径\n
+    spread: 阴影扩散范围\n
+    title:  界面标题
     '''
-    def __init__(self, width, height, setting=None, r=16, s=8, img=None, title=None, parent=None):
-        super(RoundShadow, self).__init__(parent)
-        self.r = r
-        self.s = s
-        self.setting = setting
-        # m_drag 用于判断是否可以移动窗口
-        self.m_drag = False
-        self.m_DragPosition = None
-        # 设置阴影
-        self.setShadow()
+    close_signal = pyqtSignal()
+
+    m_drag: bool = False  # 窗口是否可移动
+    m_DragPosition: QPoint = None  # 移动位置
+
+    alpha = lambda _, i: 20*(1-i**0.5*0.3535)  # 阴影函数
+    color = QColor(0, 0, 0, 255)  # 阴影初始颜色
+    space = 0.2  # 自变量
+
+    def __init__(self, width: int, height: int, radius: int=8, spread: int=8, title: str='', parent=None):
+        super().__init__(parent)
+        self.r = radius
+        self.s = spread
+        
+        self.close_signal.connect(lambda: self.close())
+        # 导入字体
+        QFontDatabase.addApplicationFont(os.path.dirname(__file__)+'\\*.ttf')
         # 初始化窗口
-        self.__initUI(width, height, img, title)
+        self.initUI(width, height, title)
         # 窗口居中
         self.center()
 
-    def __initUI(self, width, height, img, title):
-        # 设置窗口大小为界面大小加上两倍阴影扩散距离
+    def initUI(self, width: int, height: int, title: str):
+        # 设置窗口大小为界面大小加上两倍阴影扩散距离(因为是左右两边)
         self.resize(width+2*self.s, height+2*self.s)
         # 设置窗口无边框和背景透明
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         # 设置标题栏
-        tt_height = 40
-        self.ttlab = TLabel(round=(self.r, 0, 0, self.r), color=(225, 170, 140), parent=self)
+        tt_height = 50  # 标题栏高度
+        self.ttlab = TLabel(radius=(self.r, 0, 0, self.r), color=(225, 170, 140), parent=self)
         self.ttlab.setGeometry(self.s, self.s, width, tt_height)
-        self.ttlab.setText(title)
+        # 设置标题
+        self.setTitle(title)
         # 设置圆角背景
-        self.bglab = TLabel(round=(0, self.r, self.r, 0), color=(250, 250, 250), parent=self)
+        self.bglab = TLabel(radius=(0, self.r, self.r, 0), color=(250, 250, 250), parent=self)
         self.bglab.setGeometry(self.s, self.s+tt_height, width, height-tt_height)
-        # 设置最小化按钮位置和大小 绑定事件
+        # 按钮大小
         btn_size = int(0.75 * tt_height)
-        self.minButton = MyButton(MyButton.MINI, self.ttlab)
-        self.minButton.setGeometry(self.ttlab.width()-btn_size*2-10, (self.ttlab.height()-btn_size)/2, btn_size, btn_size)
+        # 设置最小化按钮位置和大小 绑定事件
+        self.minButton = miniButton(self.ttlab)
+        self.minButton.setGeometry(self.ttlab.width()-btn_size*2-10, (self.ttlab.height()-btn_size)//2, btn_size, btn_size)
         self.minButton.clicked.connect(self.showMinimized)
         # 设置关闭按钮位置和大小 绑定事件
-        self.closeButton = MyButton(MyButton.CLOSE, self.ttlab)
-        self.closeButton.setGeometry(self.ttlab.width()-btn_size-5, (self.ttlab.height()-btn_size)/2, btn_size, btn_size)
+        self.closeButton = closeButton(self.ttlab)
+        self.closeButton.setGeometry(self.ttlab.width()-btn_size-5, (self.ttlab.height()-btn_size)//2, btn_size, btn_size)
         self.closeButton.clicked.connect(self.close)
-
-    def setShadow(self, alpha=lambda i: 20*(1-i**0.5*0.3535), color=QColor(0, 0, 0, 255), space=0.2):
-        '''
-        alpha 阴影可见度变化函数
-        color 颜色
-        space 自变量(距离界面距离，取值[0-s])每次增加距离
-        '''
-        self.alpha = alpha
-        self.color = color
-        self.space = space
 
     def center(self):
         screen = QDesktopWidget().screenGeometry()
         size = self.geometry()
-        self.move((screen.width() - size.width()) / 2,
-                  (screen.height() - size.height()) / 2)
+        self.move((screen.width() - size.width()) // 2, (screen.height() - size.height()) // 2)
 
-    def setTitle(self, title: str, color=Qt.white, font=QFont('微软雅黑', 13, QFont.Normal), location=Qt.AlignCenter):
+    def setTitle(self, title: str, color=Qt.white, font=QFont('HarmonyOS Sans SC', 16), location=Qt.AlignVCenter | Qt.AlignLeft):
         self.ttlab.setText(title, color, font, location)
 
     def paintEvent(self, event):
-        # 画阴影
+        '''
+        i 表示距离界面的距离\n
+        扩散距离为 s 因此 i 的取值从[0-s]\n
+        每次生成一个可见度不同的圆角矩形\n
+        随着 i 的增大 alpha 函数值下降可使阴影渐变
+        '''
         shadow_pat = QPainter(self)
         shadow_pat.setRenderHint(shadow_pat.Antialiasing)
         i = 0
         while i <= self.s:
-            '''
-            i 表示距离界面的距离\n
-            扩散距离为 s 因此 i 的取值从[0-s]\n
-            每次生成一个可见度不同的圆角矩形\n
-            随着 i 的增大 alpha 函数值下降可使阴影渐变
-            '''
             shadow_path = QPainterPath()
             shadow_path.setFillRule(Qt.WindingFill)
             ref = QRectF(self.s-i, self.s-i, self.width()-(self.s-i)*2, self.height()-(self.s-i)*2)
             shadow_path.addRoundedRect(ref, self.r, self.r)
-            self.color.setAlpha(self.alpha(i))
+            self.color.setAlpha(int(self.alpha(i)))
             shadow_pat.setPen(self.color)
             shadow_pat.drawPath(shadow_path)
             i += self.space
+        shadow_pat.end()
 
     def mousePressEvent(self, QMouseEvent):
         '''
@@ -148,7 +153,7 @@ class RoundShadow(QMainWindow):
             # 鼠标点击点的相对位置
             self.m_DragPosition = QMouseEvent.globalPos()-self.pos()
             # print((self.m_DragPosition.x(), self.m_DragPosition.y()))
-            if self.m_DragPosition.y() <= 39 + self.s:
+            if self.m_DragPosition.y() <= 49 + self.s:
                 self.m_drag = True
 
     def mouseMoveEvent(self, QMouseEvent):
@@ -160,3 +165,11 @@ class RoundShadow(QMainWindow):
     def mouseReleaseEvent(self, QMouseEvent):
         self.m_drag = False
         QMouseEvent.accept()
+
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)  # 新建窗口前必运行app
+    win = RoundShadow(600, 400, title='中国智造')
+    win.show()  # 显示主窗口
+    app.exec_()  # 等待直到登录窗口关闭
+    

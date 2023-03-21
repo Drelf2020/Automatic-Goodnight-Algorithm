@@ -10,31 +10,31 @@ class TLabel(QLabel):
     mode: 圆角半径类型
         'relative': 取值[0,1] 相对组件长宽
         'absolute': 取值正整数 绝对像素值
-    round: 圆角半径
+    radius: 圆角半径
         tuple: 从左上开始逆时针顺序四个数字
-    color: 仅展示纯色，若与图片同时存在，优先选择图片
+    color: 仅展示纯色
         str: 纯色html代码
         tuple: RGB代码
         QColor: QColor对象
     parent: 父对象
     '''
-    def __init__(self, mode='absolute', round=(0, 0, 0, 0), color=Qt.white, parent=None):
+    def __init__(self, mode='absolute', radius=(0, 0, 0, 0), color=Qt.white, parent=None):
         super(TLabel, self).__init__(parent)
         self.text = None
         self.mode = 'relative' if mode == 'relative' else 'absolute'
 
         if self.mode == 'relative':
-            for r in round:
+            for r in radius:
                 if r > 1 or r < 0:
                     raise Exception('TLabel Round Error')
         else:
-            temp_round = []
-            for r in round:
+            temp_radius = []
+            for r in radius:
                 if r < 0:
                     raise Exception('TLabel Round Error')
-                temp_round.append(int(r))
-            round = tuple(temp_round)
-        self.round = round
+                temp_radius.append(int(r))
+            radius = tuple(temp_radius)
+        self.radius = radius
 
         if isinstance(color, tuple):
             self.color = QColor(*color)
@@ -44,10 +44,9 @@ class TLabel(QLabel):
         elif isinstance(color, (QColor, Qt.GlobalColor)):
             self.color = color
         else:
-            print(type(color))
-            raise Exception('TLabel Color Error')
+            raise Exception(f'TLabel Color Error: {type(color)}')
 
-    def setText(self, msg: str, color=Qt.white, font=QFont('微软雅黑', 13, QFont.Normal), location=Qt.AlignCenter):
+    def setText(self, msg: str, color=Qt.white, font=QFont('HarmonyOS Sans SC', 13, QFont.Normal), location=Qt.AlignCenter):
         if isinstance(color, tuple):
             color = QColor(*color)
         elif isinstance(color, str):
@@ -66,7 +65,7 @@ class TLabel(QLabel):
         pat.setRenderHint(pat.Antialiasing)  # 抗锯齿
 
         pat.setBrush(brush)
-        path = RoundPath(self.rect(), self.round)
+        path = RoundPath(self.rect(), self.radius)
         pat.drawPath(path)
         # 文字
         if self.text:
